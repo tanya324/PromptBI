@@ -102,24 +102,53 @@ In most organisations, getting a simple chart requires:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
+│                     USER'S BROWSER                          │
 │                                                             │
-│   User types: "Show monthly views by category"              │
-│                        │                                    │
-│                        ▼                                    │
-│   ┌─────────────────────────────────────────┐               │
-│   │           FASTAPI BACKEND               │               │
-│   │                                         │               │
-│   │  1. Inject schema context into prompt   │               │
-│   │  2. Call Gemini 2.0 Flash               │               │
-│   │  3. Receive SQL + chart config as JSON  │               │
-│   │  4. Validate & execute SQL on SQLite    │               │
-│   │  5. Self-correct if SQL fails           │               │
-│   │  6. Return chart data to frontend       │               │
-│   └─────────────────────────────────────────┘               │
-│                        │                                    │
-│                        ▼                                    │
-│   React renders interactive Recharts dashboard              │
-│                                                             │
+│   ┌─────────────────────────────────────────────────┐       │
+│   │              REACT FRONTEND                     │       │
+│   │           (runs on port 3000)                   │       │
+│   │                                                 │       │
+│   │   User types: "Show me Q3 sales by region"      │       │
+│   │                      │                          │       │
+│   │                      ▼                          │       │
+│   │   ┌─────────────────────────────────────┐       │       │
+│   │   │            api.js                   │       │       │
+│   │   │   (THIS IS YOUR FILE — YOU OWN THIS)│       │       │
+│   │   │                                     │       │       │
+│   │   │   submitQuery("Show me Q3 sales")   │       │       │
+│   │   └──────────────────┬──────────────────┘       │       │
+│   └───────────────────── │ ────────────────────────-┘       │
+│                          │                                  │
+└──────────────────────────│──────────────────────────────────┘
+                           │
+                           │  HTTP REQUEST
+                           │  POST http://localhost:8000/query
+                           │  Body: { "query": "Show me Q3 sales" }
+                           │
+                    (THE INTERNET / NETWORK)
+                           │
+                           │  HTTP RESPONSE
+                           │  Body: { "success": true, "charts": [...] }
+                           │
+┌──────────────────────────│──────────────────────────────────┐
+│                          │                                  │
+│   ┌───────────────────── │ ────────────────────────────┐    │
+│   │           FASTAPI BACKEND                          │    │
+│   │           (runs on port 8000)                      │    │
+│   │                      │                             │    │
+│   │                      ▼                             │    │
+│   │         Receives request at /query                 │    │
+│   │                      │                             │    │
+│   │                      ▼                             │    │
+│   │              Calls Gemini API                      │    │
+│   │                      │                             │    │
+│   │                      ▼                             │    │
+│   │           Runs SQL on Database                     │    │
+│   │                      │                             │    │
+│   │                      ▼                             │    │
+│   │         Returns JSON with charts                   │    │
+│   └────────────────────────────────────────────────────┘    │
+│                    PYTHON SERVER                            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
