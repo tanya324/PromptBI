@@ -198,7 +198,7 @@ Make sure you have these installed:
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/tanya324/.git
+git clone https://github.com/your_github_account_here/.git
 cd PromptBI
 ```
 
@@ -239,7 +239,7 @@ npm run dev
 ### Option B — Run with Docker (One Command)
 
 ```bash
-git clone https://github.com/tanya324/PromptBI.git
+git clone https://github.com/your_github_account_here/PromptBI.git
 cd PromptBI
 
 # Add your API key to a .env file in the root
@@ -373,17 +373,8 @@ Then ask:  "Which of these regions has the best sentiment score?"
 | Name | Role |
 |---|---|
 | Tanya Srivastava | Backend + AI/ML + Project Lead |
-| Suraj Singh Guleria | Frontend + UI/UX |
+| Suraj Singh Guleria | Integrating Docker with Frontend and Backend |
 | Samkit Jain | Frontend + UI/UX |
-
-*B.Tech — Artificial Intelligence & Data Science*
-*Semester 4 — Under the guidance of Dr. Neha Garg*
-
----
-
-## 📄 License
-
-This project was built as part of a B.Tech academic hackathon project.
 
 ---
 
