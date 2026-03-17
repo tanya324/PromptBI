@@ -10,12 +10,14 @@ import pandas as pd
 import os
 import re
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DB_PATH      = "videos.db"
+BASE_DIR     = Path(__file__).resolve().parent
+DB_PATH      = str(BASE_DIR / "videos.db")
 TABLE_NAME   = "videos"
-CSV_PATH     = "data.csv"          # default; overridden when user uploads
+CSV_PATH     = str(BASE_DIR / "data.csv")          # default; overridden when user uploads
 MAX_ROWS     = 500                  # hard cap on rows returned to frontend
 
 
@@ -83,6 +85,12 @@ def load_csv_to_db(csv_path: str = CSV_PATH, db_path: str = DB_PATH) -> dict:
 
     Returns metadata about the loaded table.
     """
+    # Make relative paths resolve under backend/ for consistent behavior.
+    if csv_path and not os.path.isabs(csv_path):
+        csv_path = str(BASE_DIR / csv_path)
+    if db_path and not os.path.isabs(db_path):
+        db_path = str(BASE_DIR / db_path)
+
     logger.info(f"Loading CSV: {csv_path} → {db_path}")
 
     df = pd.read_csv(csv_path, low_memory=False)
@@ -120,6 +128,69 @@ def load_csv_to_db(csv_path: str = CSV_PATH, db_path: str = DB_PATH) -> dict:
     return meta
 
 
+def ensure_sample_db(db_path: str = DB_PATH) -> dict:
+    """
+    Creates a tiny `videos` table if no dataset is available.
+    This keeps the app usable (and charts render) even without a CSV upload.
+    """
+    if db_path and not os.path.isabs(db_path):
+        db_path = str(BASE_DIR / db_path)
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (TABLE_NAME,))
+        exists = cur.fetchone() is not None
+        conn.close()
+        if exists:
+            return {"db_path": db_path, "created": False}
+    except Exception:
+        # If the DB file is corrupt/unreadable, recreate it.
+        pass
+
+    # Minimal synthetic dataset
+    now = pd.Timestamp.utcnow().floor("D")
+    df = pd.DataFrame(
+        [
+            {
+                "timestamp": (now - pd.Timedelta(days=30 * i)).strftime("%Y-%m-%d %H:%M:%S"),
+                "video_id": f"VID_{1000+i}",
+                "category": cat,
+                "language": lang,
+                "region": reg,
+                "duration_sec": 60 * (5 + i),
+                "views": 10000 * (i + 1),
+                "likes": 500 * (i + 1),
+                "comments": 120 * (i + 1),
+                "shares": 40 * (i + 1),
+                "sentiment_score": round(-0.2 + 0.1 * i, 3),
+                "ads_enabled": "True" if i % 2 == 0 else "False",
+            }
+            for i, (cat, lang, reg) in enumerate(
+                [
+                    ("Education", "English", "US"),
+                    ("Tech Reviews", "English", "UK"),
+                    ("Gaming", "Hindi", "IN"),
+                    ("Music", "Spanish", "BR"),
+                    ("Coding", "English", "US"),
+                    ("Vlogs", "Urdu", "PK"),
+                ]
+            )
+        ]
+    )
+
+    conn = sqlite3.connect(db_path)
+    df.to_sql(TABLE_NAME, conn, if_exists="replace", index=False)
+    conn.execute(f"CREATE INDEX IF NOT EXISTS idx_category  ON {TABLE_NAME}(category)")
+    conn.execute(f"CREATE INDEX IF NOT EXISTS idx_region    ON {TABLE_NAME}(region)")
+    conn.execute(f"CREATE INDEX IF NOT EXISTS idx_language  ON {TABLE_NAME}(language)")
+    conn.execute(f"CREATE INDEX IF NOT EXISTS idx_timestamp ON {TABLE_NAME}(timestamp)")
+    conn.commit()
+    conn.close()
+
+    return {"db_path": db_path, "created": True, "rows": len(df), "columns": list(df.columns)}
+
+
 def run_query(sql: str, db_path: str = DB_PATH) -> dict:
     """
     Validates and executes a SQL query.
@@ -147,6 +218,10 @@ def run_query(sql: str, db_path: str = DB_PATH) -> dict:
 
     # 2. Enforce row limit
     sql_limited = _inject_limit(sql)
+
+    # Make relative DB paths resolve under backend/
+    if db_path and not os.path.isabs(db_path):
+        db_path = str(BASE_DIR / db_path)
 
     # 3. Execute
     try:
