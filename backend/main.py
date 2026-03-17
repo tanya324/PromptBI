@@ -10,7 +10,10 @@ Endpoints:
 """
 
 from dotenv import load_dotenv
-load_dotenv()
+from pathlib import Path
+
+# Load env reliably no matter where the server is started from.
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
 import os
 import uuid
@@ -23,9 +26,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from db import load_csv_to_db, get_db_stats, get_table_preview, DB_PATH, CSV_PATH
-from llm import process_query
-from schema import SAMPLE_QUESTIONS
+# Allow running either from repo root (python -m backend.main / uvicorn backend.main:app)
+# or from inside the backend folder (python main.py).
+try:
+    from backend.db import load_csv_to_db, ensure_sample_db, get_db_stats, get_table_preview, DB_PATH, CSV_PATH
+    from backend.llm import process_query
+    from backend.schema import SAMPLE_QUESTIONS
+except Exception:  # pragma: no cover
+    from db import load_csv_to_db, ensure_sample_db, get_db_stats, get_table_preview, DB_PATH, CSV_PATH
+    from llm import process_query
+    from schema import SAMPLE_QUESTIONS
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -44,11 +54,29 @@ SESSION_DBS: dict[str, str] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     default_csv = os.environ.get("CSV_PATH", CSV_PATH)
+    default_db  = os.environ.get("DB_PATH", DB_PATH)
 
+    # If a DB already exists (e.g. bundled videos.db), use it as-is.
+    if os.path.exists(default_db):
+        stats = get_db_stats(default_db)
+        if stats:
+            logger.info(
+                f"Using existing DB: {default_db} — "
+                f"{stats.get('total_videos', 'N/A')} rows"
+            )
+            yield
+            # Cleanup temp DBs on shutdown
+            for db_path in SESSION_DBS.values():
+                if os.path.exists(db_path):
+                    os.remove(db_path)
+                    logger.info(f"Cleaned up temp DB: {db_path}")
+            return
+
+    # Otherwise, try loading from CSV if present.
     if os.path.exists(default_csv):
         logger.info(f"Loading default dataset: {default_csv}")
         try:
-            meta = load_csv_to_db(csv_path=default_csv, db_path=DB_PATH)
+            meta = load_csv_to_db(csv_path=default_csv, db_path=default_db)
             logger.info(
                 f"Default DB ready — {meta['rows']:,} rows, "
                 f"{len(meta['columns'])} columns"
@@ -58,8 +86,16 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(
             f"Default CSV not found at '{default_csv}'. "
-            "Upload a CSV via /upload-csv before querying."
+            "If you have a prebuilt DB, set DB_PATH or place videos.db in backend/. "
+            "Otherwise upload a CSV via /upload-csv before querying."
         )
+        # Ensure the app still works (demo mode) even without a dataset.
+        sample_meta = ensure_sample_db(default_db)
+        if sample_meta.get("created"):
+            logger.info(
+                f"Created sample dataset in {sample_meta.get('db_path')} "
+                f"({sample_meta.get('rows')} rows)"
+            )
     yield
     # Cleanup temp DBs on shutdown
     for db_path in SESSION_DBS.values():
@@ -104,6 +140,11 @@ class QueryResponse(BaseModel):
     insight:         str  = ""
     charts:          list = []
     failed_charts:   list = []
+    # Primary chart fields used by the current frontend ChartRenderer
+    title:           str  = ""
+    chart_type:      str  = ""
+    labels:          list = []
+    datasets:        list = []
     query:           str  = ""
     error:           str  = ""
     answerable:      bool = True
@@ -114,7 +155,8 @@ class QueryResponse(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": "gemini-1.5-flash"}
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    return {"status": "ok", "model": model}
 
 
 @app.get("/stats")
@@ -160,7 +202,10 @@ def query(req: QueryRequest):
 
     # Inject the active db_path into the query processor
     # We monkey-patch the module-level DB_PATH used by db.run_query
-    import db as db_module
+    try:
+        import backend.db as db_module
+    except Exception:  # pragma: no cover
+        import db as db_module
     original_db_path = db_module.DB_PATH
     db_module.DB_PATH = db_path
 
@@ -189,6 +234,10 @@ def query(req: QueryRequest):
         insight=result.get("insight", ""),
         charts=result.get("charts", []),
         failed_charts=result.get("failed_charts", []),
+        title=result.get("title", ""),
+        chart_type=result.get("chart_type", ""),
+        labels=result.get("labels", []),
+        datasets=result.get("datasets", []),
         query=req.query,
     )
 
