@@ -21,7 +21,7 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 // ── Axios instance — all requests go through this ────────────────────────────
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 60000, // 60 seconds — Gemini can take a moment on complex queries
+  timeout: 120000, // 120 seconds — Gemini can take a moment on complex queries
   headers: {
     "Content-Type": "application/json",
   },
